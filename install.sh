@@ -50,6 +50,8 @@ chmod 600 /etc/mihomo/secret
 install -m 0755 "$SRC/gen.py"      /etc/mihomo/gen.py
 install -m 0755 "$SRC/gen.sh"      /etc/mihomo/gen.sh
 install -m 0755 "$SRC/watchdog.py" /etc/mihomo/watchdog.py
+install -m 0755 "$HERE/tools/menu.py" /etc/mihomo/menu.py
+ln -sf /etc/mihomo/menu.py /usr/local/bin/a2a-egress
 if [[ ! -f /etc/mihomo/assignments.json ]]; then
   install -m 0644 "$SRC/assignments.json" /etc/mihomo/assignments.json
   echo "  · 已写入示例 assignments.json（请按需改成你的账号→节点）"
@@ -75,6 +77,11 @@ systemctl is-active mihomo
 
 echo "[6/6] 完成 ✅"
 cat <<'TIP'
+
+中文终端菜单：  a2a-egress
+  · 查看各账号当前出口（含出口 IP）
+  · 一键切换首选/备选/指定节点
+  · 刷新订阅 / 跑看门狗 / 连通性测试
 
 出口端口：每个账号 = 21100 + slot  (绑定在 172.17.0.1，供 agent2api 容器访问)
 下一步：把 agent2api 账号逐个绑到对应端口，运行：
