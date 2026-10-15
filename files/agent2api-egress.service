@@ -1,0 +1,13 @@
+[Unit]
+Description=agent2api egress plugin (web UI + autobind)
+After=mihomo.service docker.service
+Wants=mihomo.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/agent2api-egress/app.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

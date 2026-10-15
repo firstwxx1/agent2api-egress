@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agent2api 出口插件</title>
+<style>
+:root{--bg:#0f1419;--card:#1a2129;--fg:#e6edf3;--mut:#8b949e;--acc:#3fb950;--warn:#d29922;--bad:#f85149;--bd:#30363d}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:1040px;margin:0 auto;padding:20px}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:var(--mut);font-size:12px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input,button{font:inherit;border-radius:8px;border:1px solid var(--bd);background:#0d1117;color:var(--fg);padding:8px 10px}
+input{flex:1;min-width:240px}
+button{cursor:pointer;background:#21262d}
+button:hover{background:#30363d}
+button.p{background:#238636;border-color:#2ea043}
+button.p:hover{background:#2ea043}
+button.d{background:#3d1c1c;border-color:#5a2222}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--bd);white-space:nowrap}
+th{color:var(--mut);font-weight:500}
+.tag{display:inline-block;padding:1px 7px;border-radius:20px;font-size:12px}
+.ok{background:#12341c;color:var(--acc)}
+.no{background:#3d1c1c;color:var(--bad)}
+.mut{color:var(--mut)}
+.badge{font-size:12px;color:var(--mut)}
+a.lk{color:#58a6ff;text-decoration:none}
+.login{max-width:340px;margin:14vh auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>agent2api 出口插件 <span class="badge">subscription → mihomo → 逐账号出口</span></h1>
+  <div class="sub">在网页里直接导入订阅链接、管理账号出口、自动绑定新账号。</div>
+  <div id="app"></div>
+</div>
+
+<template id="loginT">
+  <div class="card login">
+    <b>管理员登录</b>
+    <div class="row" style="margin-top:10px"><input id="pw" type="password" placeholder="密码"><button class="p" id="lb">登录</button></div>
+    <div id="lerr" class="sub" style="color:var(--bad)"></div>
+  </div>
+</template>
+
+<script>
+const $=s=>document.querySelector(s);
+let S={};
+async function api(path,body){
+  path=path.replace(/^\/api\//,'api/');
+  const o={method:body?'POST':'GET',headers:{}};
+  if(body){o.headers['Content-Type']='application/json';o.body=JSON.stringify(body);}
+  const r=await fetch(path,o);
+  if(r.status===401){renderLogin();throw new Error('auth');}
+  return r.json();
+}
+function toast(m){const d=document.createElement('div');d.textContent=m;d.style.cssText='position:fixed;left:50%;top:16px;transform:translateX(-50%);background:#238636;color:#fff;padding:8px 14px;border-radius:8px;z-index:9';document.body.appendChild(d);setTimeout(()=>d.remove(),2200);}
+
+function renderLogin(){
+  $('#app').innerHTML='';
+  $('#app').appendChild($('#loginT').content.cloneNode(true));
+  $('#lb').onclick=async()=>{
+    const r=await fetch('api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:$('#pw').value})});
+    if(r.ok){load();}else{$('#lerr').textContent='密码错误';}
+  };
+  $('#pw').onkeydown=e=>{if(e.key==='Enter')$('#lb').click();};
+}
+
+async function load(){
+  S=await api('/api/status');
+  render();
+  loadIps();
+}
+
+function render(){
+  const a=$('#app');
+  a.innerHTML=`
+  <div class="card">
+    <div class="row">
+      <input id="sub" placeholder="订阅链接 (https://.../feed/...)" value="${S.sub?S.sub:''}">
+      <button class="p" id="savesub">保存并刷新</button>
+      <button id="refresh">刷新订阅</button>
+      <button id="wd">运行看门狗</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label><input type="checkbox" id="ab" ${S.autobind?'checked':''} style="min-width:auto"> 自动绑定新账号</label>
+      <button id="abrun">立即扫描并绑定</button>
+      <span class="badge" id="abmsg"></span>
+    </div>
+    <div class="sub" style="margin-top:8px">订阅内容每 6 小时自动刷新；看门狗每 2 分钟巡检并切换首选/备选。</div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <b>账号出口</b>
+      <span class="badge">${S.accounts.filter(x=>x.bound).length}/${S.accounts.length} 已绑定订阅出口</span>
+    </div>
+    <table><thead><tr><th>账号</th><th>提供商</th><th>槽</th><th>端口</th><th>当前出口</th><th>出口 IP</th><th>状态</th><th></th></tr></thead>
+    <tbody id="rows"></tbody></table>
+  </div>
+
+  <div class="card">
+    <b>订阅节点</b> <span class="badge">共 ${S.nodes.length}</span>
+    <div class="sub" style="margin-top:6px" id="nodes"></div>
+  </div>`;
+
+  const tb=$('#rows');
+  S.accounts.forEach(x=>{
+    const tr=document.createElement('tr');
+    const st=x.bound?(x.now===x.primary?'<span class="tag ok">首选</span>':'<span class="tag no">非首选</span>'):'<span class="tag no">未绑定</span>';
+    tr.innerHTML=`<td>${esc(x.name)}</td><td class="mut">${esc(x.provider)}</td>
+      <td>${x.slot==null?'-':x.slot}</td><td>${x.port||'-'}</td>
+      <td>${esc(x.now||'-')}</td><td class="mut" data-ip="${x.slot==null?'':x.slot}">…</td>
+      <td>${st}</td>
+      <td>${x.bound?`<button data-sw="${x.slot}">切换</button>`:`<button data-bind="1" class="p">绑定</button>`}</td>`;
+    tb.appendChild(tr);
+  });
+  tb.querySelectorAll('[data-sw]').forEach(b=>b.onclick=()=>doSwitch(+b.dataset.sw));
+  tb.querySelectorAll('[data-bind]').forEach(b=>b.onclick=()=>doBind());
+  $('#nodes').textContent=S.nodes.join('    ');
+
+  $('#savesub').onclick=async()=>{const r=await api('/api/sub',{url:$('#sub').value});toast(r.msg||r.error);load();};
+  $('#refresh').onclick=async()=>{const r=await api('/api/refresh',{});toast(r.msg||r.error);};
+  $('#wd').onclick=async()=>{toast('看门狗运行中…');const r=await api('/api/watchdog',{});toast(r.msg||r.error);load();};
+  $('#ab').onchange=async()=>{const r=await api('/api/autobind',{enabled:$('#ab').checked});toast('已'+( ($('#ab').checked)?'开启':'关闭')+'自动绑定');};
+  $('#abrun').onclick=async()=>{$('#abmsg').textContent='扫描中…';const r=await api('/api/autobind',{run:true});$('#abmsg').textContent=r.msg||r.error;load();};
+}
+
+async function loadIps(){
+  const cells=document.querySelectorAll('[data-ip]');
+  for(const c of cells){
+    if(c.dataset.ip===''){c.textContent='-';continue;}
+    api('/api/exit?slot='+c.dataset.ip).then(r=>{c.textContent=r.ip;c.style.color=r.ok?'':'var(--bad)';}).catch(()=>{});
+  }
+}
+async function doBind(){const r=await api('/api/autobind',{run:true});toast(r.msg||r.error);load();}
+async function doSwitch(slot){
+  const nodes=S.node_map, key='ACCT:'+slot;
+  const mihomoNow=(S.accounts.find(x=>x.slot===slot)||{}).now;
+  const opts=['(直连)DIRECT', ...S.nodes];
+  const v=prompt('输入要切换到的节点名（需与列表一致）：\n\n'+opts.slice(0,40).join('\n'));
+  if(!v)return;
+  const r=await api('/api/switch',{slot:slot,target:v==='(直连)DIRECT'?'DIRECT':v});
+  toast(r.msg||r.error);load();
+}
+function esc(s){return (''+s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+load().catch(()=>renderLogin());
+</script>
+</body></html>
