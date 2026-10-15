@@ -1,0 +1,6 @@
+# secrets / runtime — never commit
+sub.url
+secret
+*.bak
+*.db
+.DS_Store

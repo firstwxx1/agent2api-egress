@@ -1,0 +1,7 @@
+[Unit]
+Description=mihomo per-account egress watchdog
+After=mihomo.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /etc/mihomo/watchdog.py

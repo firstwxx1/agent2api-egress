@@ -1,0 +1,6 @@
+[Unit]
+Description=Refresh mihomo config from subscription
+
+[Service]
+Type=oneshot
+ExecStart=/etc/mihomo/gen.sh
