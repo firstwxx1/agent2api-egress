@@ -1,0 +1,12 @@
+{
+ "user-f320f668-45ca-4526-a9d4-354c52157ba8": {"slot": 0, "region": "\u9999\u6e2f", "primary": "\ud83c\udde8\ud83c\uddf3\u9999\u6e2f\u539f\u751fhtk\u9ad8\u901f", "backup": "\ud83c\udde8\ud83c\uddf3\u9999\u6e2f-i-Cable01"},
+ "user-7eee298f-ff8f-4b81-ad30-78a5b03fa237": {"slot": 1, "region": "\u9999\u6e2f", "primary": "\ud83c\udde8\ud83c\uddf3\u9999\u6e2fhkb\u5bb6\u5bbd", "backup": "\ud83c\udded\ud83c\uddf0\u9999\u6e2f-\u6d41\u5a92\u4f5302"},
+ "qoder-cn-54b1e29c658afa91e564e253bd5ac758c9e7b54b73f2d0c5bea3bff4c47dcfe8": {"slot": 2, "region": "\u9999\u6e2f", "primary": "\ud83c\udded\ud83c\uddf0\u9999\u6e2f-hkb\u5bb6\u5bbd2", "backup": "\ud83c\udde8\ud83c\uddf3\u9999\u6e2f-i-Cable02"},
+ "user-863944": {"slot": 3, "region": "\u9999\u6e2f", "primary": "\ud83c\udded\ud83c\uddf0\u9999\u6e2f-hkt\u539f\u751fhy2", "backup": "\ud83c\udded\ud83c\uddf0\u9999\u6e2f-\u6d41\u5a92\u4f5303"},
+ "custom-acct-23246fa12fba": {"slot": 4, "region": "\u9999\u6e2f", "primary": "\ud83c\udded\ud83c\uddf0\u9999\u6e2f-\u6d41\u5a92\u4f5301", "backup": "\ud83c\udde8\ud83c\uddf3\u9999\u6e2f-i-Cable03"},
+ "user-b1406515-f634-4dae-a4cc-f4377ebca18a": {"slot": 5, "region": "\u65e5\u672c", "primary": "\ud83c\uddef\ud83c\uddf5\u65e5\u672c-\u6d41\u5a92\u4f5302", "backup": "\ud83c\uddef\ud83c\uddf5\u65e5\u672c-\u539f\u751f02"},
+ "user-d381a660-84c7-4116-a198-9b405a8f055d": {"slot": 6, "region": "\u65e5\u672c", "primary": "\ud83c\uddef\ud83c\uddf5\u65e5\u672c-\u6d41\u5a92\u4f53", "backup": "\ud83c\uddef\ud83c\uddf5\u65e5\u672c-\u539f\u751f03"},
+ "user-3614c6c7-5303-44d0-adc8-abeb09aebb50": {"slot": 7, "region": "\u65e5\u672c", "primary": "\ud83c\uddef\ud83c\uddf5\u65e5\u672c-\u539f\u751f01", "backup": "\ud83c\uddef\ud83c\uddf5\u65e5\u672c-\u6d41\u5a92\u4f5302"},
+ "user-26d714e4-c2a6-4404-b0d8-16902dee5849": {"slot": 8, "region": "\u65b0\u52a0\u5761", "primary": "\ud83c\uddf8\ud83c\uddec\u65b0\u52a0\u5761-\u6d41\u5a92\u4f532hy2", "backup": "\ud83c\uddf8\ud83c\uddec\u65b0\u52a0\u5761-\u5a92\u4f53\u6d4102"},
+ "custom-acct-a91c535494b5": {"slot": 9, "region": "\u65b0\u52a0\u5761", "primary": "\ud83c\uddf8\ud83c\uddec\u65b0\u52a0\u5761-\u6d41\u5a92\u4f53hy2", "backup": "\ud83c\uddf8\ud83c\uddec\u65b0\u52a0\u5761-\u5a92\u4f53\u6d4101"}
+}

@@ -48,6 +48,35 @@ agent2api 容器 (172.17.0.x)
 
 > mihomo 自带健康检查对 **AnyTLS / Hysteria2** 节点会误报（0ms 失败），故不用 `fallback` 自动切，改由 `watchdog.py` 真实探测驱动，更可靠。
 
+## 在新机器上部署（完整清单）
+
+前提：Linux amd64（Ubuntu/Debian 系）、有 root、已装 Docker 且跑着 agent2api 容器。
+
+```bash
+# 1) 拉取私有仓库（二选一）
+gh auth login                                   # 或用带 token 的 https
+gh repo clone firstwxx1/agent2api-egress && cd agent2api-egress
+#   https 方式： git clone https://<TOKEN>@github.com/firstwxx1/agent2api-egress.git
+
+# 2) 一键安装（写入订阅链接，其它都在本机生成）
+sudo SUB_URL='https://你的订阅/feed/...' bash install.sh
+
+# 3) （可选）把网页插件挂到 nginx：把 files/nginx-egress.snippet 加进站点配置
+#    放在 `location / {` 之前，然后  nginx -t && nginx -s reload
+#    访问 https://<域名>/egress/，密码在 /opt/agent2api-egress/config.json
+
+# 4) 绑定账号：浏览器打开插件 → 开启「自动绑定」→「立即扫描并绑定」
+#    或命令行：
+sudo python3 tools/bind-accounts.py            # 预览
+sudo python3 tools/bind-accounts.py --apply    # 应用（自带 DB 备份 + 重启容器）
+```
+
+安装后自带：`mihomo` 内核 + 每账号固定出口 + 首选/备选 + 看门狗 + 6h 订阅刷新 + 网页插件 + 自动绑定。
+
+> 默认假定：容器名 `agent2api`、DB `/opt/agent2api/data/agent2api.db`。不同时改
+> `/opt/agent2api-egress/config.json` 里的 `container` / `db`。
+> 订阅链接、密码、DB 都**只在本机**，不随仓库迁移。
+
 ## 安装
 
 ```bash
