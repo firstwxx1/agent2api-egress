@@ -162,6 +162,24 @@ def test_all():
     print()
 
 
+def set_sub():
+    cur = ''
+    try:
+        cur = open(MIHOMO + '/sub.url').read().strip()
+    except Exception:
+        pass
+    if cur:
+        print('当前订阅：%s...%s' % (cur[:28], cur[-6:]))
+    url = input('输入新的订阅链接（回车取消）: ').strip()
+    if not url:
+        return
+    with open(MIHOMO + '/sub.url', 'w') as f:
+        f.write(url)
+    os.chmod(MIHOMO + '/sub.url', 0o600)
+    print('✅ 已写入订阅链接，正在刷新 ...')
+    refresh()
+
+
 def main():
     while True:
         print('===== agent2api 出口管理 =====')
@@ -171,6 +189,7 @@ def main():
         print(' 4) 立即刷新订阅')
         print(' 5) 立即运行看门狗')
         print(' 6) 测试全部账号连通性')
+        print(' 7) 设置/更换订阅链接')
         print(' 0) 退出')
         c = input('选择: ').strip()
         try:
@@ -186,6 +205,8 @@ def main():
                 watchdog()
             elif c == '6':
                 test_all()
+            elif c == '7':
+                set_sub()
             elif c == '0' or c == '':
                 break
         except KeyboardInterrupt:
