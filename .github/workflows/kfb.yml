@@ -172,5 +172,5 @@ jobs:
           print("RESULT shard=%d front=%d lo=%d hi=%d covered=%d elapsed=%.0fs rate=%.2f/s counts=%s failed=%d"%(SHARD,front[0],lo,hi,front[0]-lo,el,(front[0]-lo)/max(el,1),dict(cnt),len(failed)),flush=True)
           if failed: print("FAILED_IDX %s"%(",".join(str(x) for x in failed[:50])),flush=True)
 
-PYEOF
+          PYEOF
           python3 /tmp/p.py
