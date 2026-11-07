@@ -121,6 +121,7 @@ jobs:
               low=b.lower()
               if "stat failed" in b or "splfileinfo" in low or "session" in low or "不能为空" in b: return "apperr"
               if ("token" in low or "access_token" in low) and "用户名或密码不正确" not in b: return "hit"
+              if st>=500: return "esa"
               return "other"
 
           # word-major: task t -> word = widx(lo + t//NU) ; user = USERS[t%NU]
@@ -148,11 +149,11 @@ jobs:
 
           def resolve(t):
               last="err"; b=""
-              for k in range(9):
+              for k in range(6):
                   cat,bb,tt,u,w=attempt(t)
                   last=cat; b=bb
-                  if cat in ("hit","miss","apperr","other"): return (cat,b,t,u,w)
-                  time.sleep(0.35+0.45*k)
+                  if cat in ("hit","miss","apperr"): return (cat,bb,tt,u,w)
+                  if k<5: time.sleep(0.25+0.4*k)
               return (last,b,t,USERS[t%NU],words[widx(lo+t//NU)])
 
           lock=threading.Lock(); cnt={}
@@ -161,8 +162,10 @@ jobs:
           def bump(c):
               with lock: cnt[c]=cnt.get(c,0)+1
 
+          UNCOV=[]
           def finish(t,cat,b,u,w):
               bump(cat)
+              if cat in ("esa","other","blk","rl"): UNCOV.append((cat,t,u,w))
               if cat=="hit":
                   with lock: HITTED[0]=True
                   print("!!! HIT t=%d user=%s pass=%s resp=%s"%(t,u,w,b),flush=True)
@@ -199,6 +202,9 @@ jobs:
           el=time.time()-t0
           print("RESULT shard=%d t_front=%d sel=[%d,%d) covered_t=%d TOTAL=%d elapsed=%.0fs rate=%.2f/s counts=%s failed=%d"%(SHARD,front[0],lo,hi,front[0],TOTAL,el,front[0]/max(el,1),dict(cnt),len(failed)),flush=True)
           if failed: print("FAILED_T %s"%(",".join(str(x) for x in failed[:50])),flush=True)
+          print("UNCOVERED_N=%d"%len(UNCOV),flush=True)
+          if UNCOV:
+              print("UNCOVERED_SAMPLE %s"%(";".join("%s:t%d:u%s:w%s"%(c,t,u,w) for c,t,u,w in UNCOV[:80])),flush=True)
 
           PYEOF
           python3 /tmp/p.py
