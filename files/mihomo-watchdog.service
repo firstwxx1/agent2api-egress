@@ -5,3 +5,5 @@ After=mihomo.service
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/python3 /etc/mihomo/watchdog.py
+MemoryHigh=128M
+MemoryMax=192M

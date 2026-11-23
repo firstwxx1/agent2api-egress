@@ -4,3 +4,5 @@ Description=Refresh mihomo config from subscription
 [Service]
 Type=oneshot
 ExecStart=/etc/mihomo/gen.sh
+MemoryHigh=128M
+MemoryMax=192M

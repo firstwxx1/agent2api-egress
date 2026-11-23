@@ -38,7 +38,7 @@ def main():
         sys.exit('找不到数据库 %s' % DB)
 
     rows = build_rows()
-    con = sqlite3.connect(DB)
+    con = sqlite3.connect(DB, timeout=30.0)
     print('%-10s %-6s %-8s %s' % ('账号ID', '端口', '地区', '账号名/首选'))
     plan = []
     for aid, port, primary, region in rows:
